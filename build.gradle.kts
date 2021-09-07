@@ -21,6 +21,10 @@ dependencies {
     implementation("org.slf4j:slf4j-api:1.7.32")
 }
 
+tasks {
+    withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> { kotlinOptions { jvmTarget = "1.8" } }
+}
+
 publishing {
     repositories {
         maven {
@@ -32,3 +36,4 @@ publishing {
         }
     }
 }
+

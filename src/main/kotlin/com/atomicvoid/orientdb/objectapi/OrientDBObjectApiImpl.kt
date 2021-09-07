@@ -12,12 +12,12 @@ import com.orientechnologies.orient.core.record.impl.ODocument
 import com.orientechnologies.orient.core.record.impl.OEdgeDocument
 import com.orientechnologies.orient.core.record.impl.OVertexDocument
 import com.orientechnologies.orient.core.sql.executor.OResult
-import org.slf4j.LoggerFactory
 import org.reflections8.Reflections
 import org.reflections8.scanners.SubTypesScanner
 import org.reflections8.util.ClasspathHelper
 import org.reflections8.util.ConfigurationBuilder
 import org.reflections8.util.FilterBuilder
+import org.slf4j.LoggerFactory
 import java.lang.reflect.Field
 import java.lang.reflect.ParameterizedType
 import java.text.MessageFormat
@@ -56,7 +56,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
     }
 
     override fun registerEntityClass(
-        entityClassName: String,
+        entityName: String,
         iClass: Class<*>
     ) {
         if (iClass.isAnonymousClass) {
@@ -64,15 +64,15 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         }
         session.activateOnCurrentThread()
         val oSchema = session.metadata.schema
-        if (!oSchema.existsClass(entityClassName)) {
+        if (!oSchema.existsClass(entityName)) {
             val edgeClassAnnotation = iClass.getAnnotation(EdgeClass::class.java)
             if (edgeClassAnnotation != null) {
-                oSchema.createClass(entityClassName, oSchema.getClass("E"))
+                oSchema.createClass(entityName, oSchema.getClass("E"))
             } else {
-                oSchema.createClass(entityClassName, oSchema.getClass("V"))
+                oSchema.createClass(entityName, oSchema.getClass("V"))
             }
         }
-        registeredClassForEntityMap[entityClassName] = iClass
+        registeredClassForEntityMap[entityName] = iClass
     }
 
     override fun <RET> query(
@@ -169,9 +169,11 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         return query(query)
     }
 
+
     override fun <RET> saveAndGet(iContent: Any?): RET {
         session.activateOnCurrentThread()
-        return toObject(session.save(toDocument(iContent)))!!
+        val oDocument = session.save<ODocument>(toDocument(iContent))
+        return toObject(oDocument)!!
     }
 
     override fun save(iContent: Any?) {
@@ -495,7 +497,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 return getEnumValue(fieldClass, value)
             }
             Set::class.java.isAssignableFrom(fieldClass) -> {
-                val setValue = hashSetOf<Any>();
+                val setValue = hashSetOf<Any>()
                 (value as Set<Any>).forEach {
                     val element: Any? = mapToObjectValue(genericClass!!, null, it)
                     if (element != null) {
@@ -505,7 +507,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 return setValue
             }
             Collection::class.java.isAssignableFrom(fieldClass) -> {
-                val listValue = mutableListOf<Any>();
+                val listValue = mutableListOf<Any>()
                 (value as Collection<Any>).forEach {
                     val element: Any? = mapToObjectValue(genericClass!!, null, it)
                     if (element != null) {
@@ -524,7 +526,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 return getEnumName(fieldClass, value as Enum<*>)
             }
             Set::class.java.isAssignableFrom(fieldClass) -> {
-                val setValue = hashSetOf<Any>();
+                val setValue = hashSetOf<Any>()
                 (value as Set<Any>).forEach {
                     val element: Any? = mapToDocumentValue(genericClass!!, null, it)
                     if (element != null) {
@@ -534,7 +536,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 return setValue
             }
             Collection::class.java.isAssignableFrom(fieldClass) -> {
-                val listValue = mutableListOf<Any>();
+                val listValue = mutableListOf<Any>()
                 (value as Collection<Any>).forEach {
                     val element: Any? = mapToDocumentValue(genericClass!!, null, it)
                     if (element != null) {
