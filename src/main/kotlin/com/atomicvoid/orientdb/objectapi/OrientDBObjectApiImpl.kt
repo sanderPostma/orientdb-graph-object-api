@@ -2,6 +2,7 @@ package com.atomicvoid.orientdb.objectapi
 
 import com.atomicvoid.orientdb.objectapi.annotations.*
 import com.orientechnologies.orient.core.db.ODatabaseSession
+import com.orientechnologies.orient.core.db.record.OIdentifiable
 import com.orientechnologies.orient.core.db.record.ridbag.ORidBag
 import com.orientechnologies.orient.core.id.ORID
 import com.orientechnologies.orient.core.record.ODirection
@@ -19,11 +20,14 @@ import org.reflections8.util.ConfigurationBuilder
 import org.reflections8.util.FilterBuilder
 import org.slf4j.LoggerFactory
 import java.lang.reflect.Field
+import java.lang.reflect.Modifier
 import java.lang.reflect.ParameterizedType
 import java.text.MessageFormat
 import java.util.*
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
+@Suppress("unused")
 class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBObjectApi {
 
     companion object {
@@ -59,7 +63,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         entityName: String,
         iClass: Class<*>
     ) {
-        if (iClass.isAnonymousClass) {
+        if (iClass.isAnonymousClass || registeredClassForEntityMap.containsKey(entityName)) {
             return
         }
         session.activateOnCurrentThread()
@@ -146,11 +150,51 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         return toObject(document)
     }
 
+    override fun <RET> load(orid: ORID?, iClass: Class<RET>): RET? {
+        if (orid == null) {
+            return null
+        }
+        session.activateOnCurrentThread()
+        val document = session.load<ODocument>(orid) ?: return null
+        return toObject(document, iClass)
+    }
+
+    private fun <RET> toObject(oDocument: ODocument, iClass: Class<RET>): RET? {
+        registerEntityClass(iClass)
+        return toObject(oDocument)
+    }
+
+    override fun <RET> lock(orid: ORID?): RET? {
+        if (orid == null) {
+            return null
+        }
+        session.activateOnCurrentThread()
+        val document = session.lock<ODocument>(orid, 0, TimeUnit.MILLISECONDS) ?: return null
+        return toObject(document)
+    }
+
+    override fun unlock(orid: ORID?) {
+        session.activateOnCurrentThread()
+        session.unlock(orid)
+    }
+
     override fun <RET> loadCollection(collection: Collection<ORID?>?): List<RET> {
         session.activateOnCurrentThread()
         val result: MutableList<RET> = ArrayList()
         collection?.forEach { orid: ORID? ->
             val record: RET? = load(orid)
+            record?.let {
+                result.add(record)
+            }
+        }
+        return result
+    }
+
+    override fun <RET> loadCollection(collection: Collection<ORID?>?, iClass: Class<RET>): List<RET> {
+        session.activateOnCurrentThread()
+        val result: MutableList<RET> = ArrayList()
+        collection?.forEach { orid: ORID? ->
+            val record: RET? = load(orid, iClass)
             record?.let {
                 result.add(record)
             }
@@ -176,9 +220,10 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         return toObject(oDocument)!!
     }
 
-    override fun save(iContent: Any?) {
+    override fun save(iContent: Any?): ORID {
         session.activateOnCurrentThread()
-        session.save<ORecord>(toDocument(iContent))
+        val oDocument = session.save<ORecord>(toDocument(iContent))
+        return oDocument.getRecord<ORecord?>().identity
     }
 
     override fun delete(iContent: Any?) {
@@ -393,42 +438,64 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
     }
 
     fun <RET> toObject(iContent: Any): RET? {
-        if (iContent is ORID) {
-            val oVertexDocument = session.load<OVertexDocument>(iContent)
-            return toObject(oVertexDocument)
-        } else if (iContent is OVertexDocument) {
-            return toObject(iContent)
-        } else if (iContent is OResult) {
-            val oResult = iContent
-            if (oResult.isVertex) {
-                val oVertexDocument = oResult.vertex.get() as OVertexDocument
+        when (iContent) {
+            is ORID -> {
+                val oVertexDocument = session.load<OVertexDocument>(iContent)
                 return toObject(oVertexDocument)
             }
-            throw IllegalArgumentException("$oResult type not supported")
-        } else if (iContent is ORidBag) {
-            val resultList: MutableList<Any> = mutableListOf()
-            iContent.forEach { it ->
-                val oDocument: ODocument? = session.load(it.identity)
-                oDocument?.let {
-                    when (oDocument) {
-                        is OEdgeDocument -> {
-                            val outOVertex: OVertexDocument = oDocument.getProperty("in") // The In side is connected to this vertex when reading
-                            toObject<RET>(outOVertex)?.let { resultList.add(it) }
-                        }
-                        is OVertexDocument -> {
-                            toObject<RET>(it)?.let { resultList.add(it) }
+            is OVertexDocument -> {
+                return toObject(iContent)
+            }
+            is OResult -> {
+                if (iContent.isVertex) {
+                    val oVertexDocument = iContent.vertex.get() as OVertexDocument
+                    return toObject(oVertexDocument)
+                } else if (iContent.isProjection) {
+                    iContent.propertyNames.forEach {
+                        try {
+                            return iContent.getProperty(it)
+                        } catch (e: Exception) {
                         }
                     }
-
+                    return null
                 }
+                throw IllegalArgumentException("$iContent type not supported")
             }
-            return resultList as RET
-        } else if (iContent is OEdgeDocument) {
-            val outOVertex: OVertexDocument = iContent.getProperty("in") // The In side is connected to this vertex when reading
-            return toObject(outOVertex)
+            is ORidBag -> {
+                val resultList: MutableList<Any> = mutableListOf()
+                iContent.forEach { it ->
+                    selectAndAddDocument<RET>(it, resultList)
+                }
+                return resultList as RET
+            }
+            is OEdgeDocument -> {
+                val outOVertex: OVertexDocument = iContent.getProperty("in") // The In side is connected to this vertex when reading
+                return toObject(outOVertex)
+            }
+            else -> throw IllegalArgumentException("" + iContent.javaClass + " not supported")
         }
 
-        throw IllegalArgumentException("" + iContent.javaClass + " not supported")
+    }
+
+    private fun <RET> selectAndAddDocument(
+        it: OIdentifiable,
+        resultList: MutableList<Any>
+    ) {
+        val oDocument: ODocument? = session.load(it.identity)
+        oDocument?.let {
+            when (oDocument) {
+                is OEdgeDocument -> {
+                    val outOVertex: OVertexDocument = oDocument.getProperty("in") // The In side is connected to this vertex when reading
+                    toObject<RET>(outOVertex)?.let { resultList.add(it) }
+                }
+                is OVertexDocument -> {
+                    toObject<RET>(it)?.let { resultList.add(it) }
+                }
+                else -> {
+                    logger.warn("Unsupported document type ${oDocument.className}")
+                }
+            }
+        }
     }
 
     fun <RET> toObject(oDocument: OVertexDocument): RET? {
@@ -449,8 +516,10 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 val inAnnotation: In? = field.getAnnotation(In::class.java)
                 if (inAnnotation != null) {
                     val edgeLabel = inAnnotation.edgeLabel.ifEmpty { entityName + "To" + field.javaClass.simpleName }
-                    val `object` = oDocument.getProperty<Any>("in_$edgeLabel")
-                    field[resultObject] = toObject(`object`)
+                    val oVertexDocument = oDocument.getProperty<Any>("in_$edgeLabel") // TODO make sure in edges are populated
+                    if (oVertexDocument != null) {
+                        field[resultObject] = toObject(oVertexDocument)
+                    }
                     continue
                 }
                 val outAnnotation: Out? = field.getAnnotation(Out::class.java)
@@ -481,7 +550,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 val fieldName = if (propertyAnnotation != null && propertyAnnotation.value.isNotEmpty()) propertyAnnotation.value else field.name
                 val value = oDocument.getProperty<Any>(fieldName)
                 val mapToObjectValue = mapToObjectValue(field.type, getGenericClass(field), value)
-                if (mapToObjectValue != null || !field.type.isPrimitive) {
+                if ((mapToObjectValue != null || !field.type.isPrimitive) && !Modifier.isFinal(field.modifiers)) {
                     field[resultObject] = mapToObjectValue
                 }
             }
