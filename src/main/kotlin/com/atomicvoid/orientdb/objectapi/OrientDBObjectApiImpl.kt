@@ -5,6 +5,8 @@ import com.orientechnologies.orient.core.db.ODatabaseSession
 import com.orientechnologies.orient.core.db.record.OIdentifiable
 import com.orientechnologies.orient.core.db.record.ridbag.ORidBag
 import com.orientechnologies.orient.core.id.ORID
+import com.orientechnologies.orient.core.metadata.schema.OClass
+import com.orientechnologies.orient.core.metadata.schema.OType
 import com.orientechnologies.orient.core.record.ODirection
 import com.orientechnologies.orient.core.record.OEdge
 import com.orientechnologies.orient.core.record.ORecord
@@ -22,7 +24,12 @@ import org.slf4j.LoggerFactory
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 import java.lang.reflect.ParameterizedType
+import java.math.BigDecimal
 import java.text.MessageFormat
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZonedDateTime
 import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -35,6 +42,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         private val registeredClassForEntityMap: MutableMap<String?, Class<*>> = HashMap()
     }
 
+    // TODO move registration stuff to other class
     override fun registerEntityClasses(iPackageName: String?) {
         val iClassLoader = Thread.currentThread().contextClassLoader
         val urls = ClasspathHelper.forPackage(iPackageName, iClassLoader)
@@ -70,14 +78,60 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         val oSchema = session.metadata.schema
         if (!oSchema.existsClass(entityName)) {
             val edgeClassAnnotation = iClass.getAnnotation(EdgeClass::class.java)
-            if (edgeClassAnnotation != null) {
+            val oClass = if (edgeClassAnnotation != null) {
                 oSchema.createClass(entityName, oSchema.getClass("E"))
             } else {
                 oSchema.createClass(entityName, oSchema.getClass("V"))
             }
+            registerFields(oClass, iClass)
         }
         registeredClassForEntityMap[entityName] = iClass
     }
+
+    private fun registerFields(oClass: OClass, iClass: Class<*>) {
+        iClass.declaredFields.forEach { field ->
+            registerProperty(oClass, field);
+            registerIndex(oClass, field);
+        }
+    }
+
+    private fun registerProperty(oClass: OClass, field: Field) {
+        field.isAccessible = true
+        val oType = when (field.type) {
+            String.javaClass ->
+                OType.STRING
+            Boolean.javaClass ->
+                OType.BOOLEAN
+            Byte.javaClass ->
+                OType.BYTE
+            LocalDate::javaClass ->
+                OType.DATE
+            Date::javaClass, LocalDateTime::javaClass, OffsetDateTime::javaClass, ZonedDateTime::javaClass ->
+                OType.DATETIME
+            BigDecimal::javaClass ->
+                OType.DECIMAL
+            Double.javaClass ->
+                OType.DOUBLE
+            Float.javaClass ->
+                OType.FLOAT
+            Integer::javaClass ->
+                OType.INTEGER
+            Long.javaClass ->
+                OType.LONG
+            Short.javaClass ->
+                OType.SHORT
+            // TODO add embedded vs linked lists
+            else ->
+                OType.ANY
+        }
+        oClass.createProperty(field.name, oType)
+    }
+
+    private fun registerIndex(oClass: OClass, field: Field) {
+        val indexedAnnotation = field.getAnnotation(Indexed::class.java)
+        oClass.createIndex(indexedAnnotation.name, indexedAnnotation.indexType, field.name)
+    }
+
 
     override fun <RET> query(
         query: String,
@@ -254,11 +308,11 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         if (session.isClosed) {
             logger.error("dbSession closed prematurely")
         }
-        //            logger.info("Closing " + dbSession);
         try {
+            session.activateOnCurrentThread()
             session.close()
         } catch (exception: Exception) {
-            logger.error("Could not return session", exception)
+            logger.error("Could not return session $session", exception)
             throw exception
         }
     }
@@ -380,7 +434,8 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         for (field in iClass.declaredFields) {
             field.isAccessible = true
             val inAnnotation = field.getAnnotation(In::class.java)
-            if (inAnnotation != null) {
+            val ignoreAnnotation = field.getAnnotation(Ignore::class.java)
+            if (inAnnotation != null || ignoreAnnotation != null) {
                 continue
             }
             val outAnnotation = field.getAnnotation(Out::class.java)
