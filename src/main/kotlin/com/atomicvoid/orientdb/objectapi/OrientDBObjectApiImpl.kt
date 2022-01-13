@@ -76,7 +76,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         }
         session.activateOnCurrentThread()
         val oSchema = session.metadata.schema
-        if (!oSchema.existsClass(entityName)) {
+        if (!oSchema.existsClass(entityName) && !(iClass.isMemberClass && iClass.simpleName == "Companion")) {
             val edgeClassAnnotation = iClass.getAnnotation(EdgeClass::class.java)
             val oClass = if (edgeClassAnnotation != null) {
                 oSchema.createClass(entityName, oSchema.getClass("E"))
@@ -96,40 +96,51 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
     }
 
     private fun registerProperty(oClass: OClass, field: Field) {
+        val oidAnnotation: OId? = field.getAnnotation(OId::class.java)
+        if (oidAnnotation != null || field.type == ORID::javaClass) {
+            return
+        }
+
         field.isAccessible = true
-        val oType = when (field.type) {
-            String.javaClass ->
+        var oType = when (field.type) {
+            String::class.java ->
                 OType.STRING
-            Boolean.javaClass ->
+            Boolean::class.java ->
                 OType.BOOLEAN
-            Byte.javaClass ->
+            Byte::class.java ->
                 OType.BYTE
-            LocalDate::javaClass ->
+            LocalDate::class.java ->
                 OType.DATE
-            Date::javaClass, LocalDateTime::javaClass, OffsetDateTime::javaClass, ZonedDateTime::javaClass ->
+            Date::class.java, LocalDateTime::class.java, OffsetDateTime::class.java, ZonedDateTime::class.java ->
                 OType.DATETIME
             BigDecimal::javaClass ->
                 OType.DECIMAL
-            Double.javaClass ->
+            Double::class.java ->
                 OType.DOUBLE
-            Float.javaClass ->
+            Float::class.java ->
                 OType.FLOAT
-            Integer::javaClass ->
+            Integer::class.java ->
                 OType.INTEGER
-            Long.javaClass ->
+            Long::class.java ->
                 OType.LONG
-            Short.javaClass ->
+            Short::class.java ->
                 OType.SHORT
             // TODO add embedded vs linked lists
             else ->
                 OType.ANY
         }
+        if (field.type.isEnum) {
+            oType = OType.STRING
+        }
+
         oClass.createProperty(field.name, oType)
     }
 
     private fun registerIndex(oClass: OClass, field: Field) {
         val indexedAnnotation = field.getAnnotation(Indexed::class.java)
-        oClass.createIndex(indexedAnnotation.name, indexedAnnotation.indexType, field.name)
+        if (indexedAnnotation != null) {
+            oClass.createIndex(indexedAnnotation.name, indexedAnnotation.indexType, field.name)
+        }
     }
 
 
@@ -419,6 +430,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 }
             } else if (toObject != null) {
                 val toVertex: OVertexDocument = getToVertex(toObject, outAnnotation)
+                deleteEdgeWhenChanged(oVertex, toVertex, edgeLabel)
                 createEdgeIfNotExists(oVertex, toVertex, edgeLabel)
             }
         }
@@ -492,6 +504,19 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         }
     }
 
+    private fun deleteEdgeWhenChanged(
+        oVertex: OVertex,
+        oVertexDoc: OVertexDocument,
+        edgeLabel: String
+    ) {
+        val edges = oVertex.getEdges(ODirection.OUT, edgeLabel)
+        edges.forEach { oEdge: OEdge ->
+            if (oEdge.to != oVertexDoc) {
+                session.delete(oEdge.identity)
+            }
+        }
+    }
+
     fun <RET> toObject(iContent: Any): RET? {
         when (iContent) {
             is ORID -> {
@@ -524,7 +549,8 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 return resultList as RET
             }
             is OEdgeDocument -> {
-                val outOVertex: OVertexDocument = iContent.getProperty("in") // The In side is connected to this vertex when reading
+                val outOVertex: OVertexDocument =
+                    iContent.getProperty("in") // The In side is connected to this vertex when reading
                 return toObject(outOVertex)
             }
             else -> throw IllegalArgumentException("" + iContent.javaClass + " not supported")
@@ -540,7 +566,8 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         oDocument?.let {
             when (oDocument) {
                 is OEdgeDocument -> {
-                    val outOVertex: OVertexDocument = oDocument.getProperty("in") // The In side is connected to this vertex when reading
+                    val outOVertex: OVertexDocument =
+                        oDocument.getProperty("in") // The In side is connected to this vertex when reading
                     toObject<RET>(outOVertex)?.let { resultList.add(it) }
                 }
                 is OVertexDocument -> {
@@ -571,7 +598,8 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 val inAnnotation: In? = field.getAnnotation(In::class.java)
                 if (inAnnotation != null) {
                     val edgeLabel = inAnnotation.edgeLabel.ifEmpty { entityName + "To" + field.javaClass.simpleName }
-                    val oVertexDocument = oDocument.getProperty<Any>("in_$edgeLabel") // TODO make sure in edges are populated
+                    val oVertexDocument =
+                        oDocument.getProperty<Any>("in_$edgeLabel") // TODO make sure in edges are populated
                     if (oVertexDocument != null) {
                         field[resultObject] = toObject(oVertexDocument)
                     }
@@ -602,7 +630,8 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                     continue
                 }
                 val propertyAnnotation: Property? = field.getAnnotation(Property::class.java)
-                val fieldName = if (propertyAnnotation != null && propertyAnnotation.value.isNotEmpty()) propertyAnnotation.value else field.name
+                val fieldName =
+                    if (propertyAnnotation != null && propertyAnnotation.value.isNotEmpty()) propertyAnnotation.value else field.name
                 val value = oDocument.getProperty<Any>(fieldName)
                 val mapToObjectValue = mapToObjectValue(field.type, getGenericClass(field), value)
                 if ((mapToObjectValue != null || !field.type.isPrimitive) && !Modifier.isFinal(field.modifiers)) {
