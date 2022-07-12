@@ -5,6 +5,7 @@ import com.orientechnologies.orient.core.db.ODatabaseSession
 import com.orientechnologies.orient.core.db.record.OIdentifiable
 import com.orientechnologies.orient.core.db.record.ridbag.ORidBag
 import com.orientechnologies.orient.core.id.ORID
+import com.orientechnologies.orient.core.id.ORecordId
 import com.orientechnologies.orient.core.metadata.schema.OClass
 import com.orientechnologies.orient.core.metadata.schema.OType
 import com.orientechnologies.orient.core.record.ODirection
@@ -344,7 +345,9 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
     }
 
     override fun getORID(iContent: Any?): Optional<ORID> {
-        session.activateOnCurrentThread()
+        if(iContent is ORecordId) {
+            return Optional.ofNullable(iContent as ORID)
+        }
         var orid: ORID? = null
         for (field in iContent!!.javaClass.declaredFields) {
             val oidAnnotation: OId? = field.getAnnotation(OId::class.java)
@@ -651,20 +654,24 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
             }
             Set::class.java.isAssignableFrom(fieldClass) -> {
                 val setValue = hashSetOf<Any>()
-                (value as Set<Any>).forEach {
-                    val element: Any? = mapToObjectValue(genericClass!!, null, it)
-                    if (element != null) {
-                        setValue.add(element)
+                if(value != null) {
+                    (value as Set<Any>).forEach {
+                        val element: Any? = mapToObjectValue(genericClass!!, null, it)
+                        if (element != null) {
+                            setValue.add(element)
+                        }
                     }
                 }
                 return setValue
             }
             Collection::class.java.isAssignableFrom(fieldClass) -> {
                 val listValue = mutableListOf<Any>()
-                (value as Collection<Any>).forEach {
-                    val element: Any? = mapToObjectValue(genericClass!!, null, it)
-                    if (element != null) {
-                        listValue.add(element)
+                if(value != null) {
+                    (value as Collection<Any>).forEach {
+                        val element: Any? = mapToObjectValue(genericClass!!, null, it)
+                        if (element != null) {
+                            listValue.add(element)
+                        }
                     }
                 }
                 return listValue
