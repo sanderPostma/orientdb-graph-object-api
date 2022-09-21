@@ -298,14 +298,17 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
     }
 
     override fun beginTransaction() {
+        session.activateOnCurrentThread()
         session.begin()
     }
 
     override fun commitTransaction() {
+        session.activateOnCurrentThread()
         session.commit()
     }
 
     override fun rollbackTransaction() {
+        session.activateOnCurrentThread()
         session.rollback()
     }
 
@@ -613,9 +616,11 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                     val edgeLabel = outAnnotation.edgeLabel.ifEmpty { entityName + "To" + field.javaClass.simpleName }
                     val outElement: Any = oDocument.getProperty<Any?>("out_$edgeLabel") ?: continue
                     val toObject: Any? = toObject(outElement)
-                    if (toObject is Collection<*> && !Collection::class.java.isAssignableFrom(field.type)) {
-                        toObject.firstNotNullOf { // We may get an RidBag while we linked a single entity
-                            field[resultObject] = it
+                    if (toObject is Collection<*> && !Collection::class.java.isAssignableFrom(field.type) ) {
+                        if(!toObject.isEmpty()) {
+                            toObject.firstNotNullOf { // We may get an RidBag while we linked a single entity
+                                field[resultObject] = it
+                            }
                         }
                     } else {
                         field[resultObject] = toObject
