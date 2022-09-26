@@ -390,8 +390,10 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         val valueFields: MutableSet<Field?> = triple.third
         if (!isEdgeClass) {
             val oVertex = if (orid != null) session.load(orid) else session.newVertex(entityName)
-            loadFieldProperties(valueFields, iContent, oVertex)
-            createOutEdges(outEdgeFields, entityName, iContent, oVertex)
+            if(oVertex != null) {
+                loadFieldProperties(valueFields, iContent, oVertex)
+                createOutEdges(outEdgeFields, entityName, iContent, oVertex)
+            }
             return oVertex
         }
         throw IllegalArgumentException("EdgeClass not yet supported")
