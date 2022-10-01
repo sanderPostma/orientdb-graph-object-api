@@ -106,24 +106,34 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         var oType = when (field.type) {
             String::class.java ->
                 OType.STRING
+
             Boolean::class.java ->
                 OType.BOOLEAN
+
             Byte::class.java ->
                 OType.BYTE
+
             LocalDate::class.java ->
                 OType.DATE
+
             Date::class.java, LocalDateTime::class.java, OffsetDateTime::class.java, ZonedDateTime::class.java ->
                 OType.DATETIME
+
             BigDecimal::javaClass ->
                 OType.DECIMAL
+
             Double::class.java ->
                 OType.DOUBLE
+
             Float::class.java ->
                 OType.FLOAT
+
             Integer::class.java ->
                 OType.INTEGER
+
             Long::class.java ->
                 OType.LONG
+
             Short::class.java ->
                 OType.SHORT
             // TODO add embedded vs linked lists
@@ -348,7 +358,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
     }
 
     override fun getORID(iContent: Any?): Optional<ORID> {
-        if(iContent is ORecordId) {
+        if (iContent is ORecordId) {
             return Optional.ofNullable(iContent as ORID)
         }
         var orid: ORID? = null
@@ -390,7 +400,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         val valueFields: MutableSet<Field?> = triple.third
         if (!isEdgeClass) {
             val oVertex = if (orid != null) session.load(orid) else session.newVertex(entityName)
-            if(oVertex != null) {
+            if (oVertex != null) {
                 loadFieldProperties(valueFields, iContent, oVertex)
                 createOutEdges(outEdgeFields, entityName, iContent, oVertex)
             }
@@ -452,7 +462,9 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         val outEdgeFields: MutableSet<Field> = hashSetOf()
         val valueFields: MutableSet<Field?> = hashSetOf()
         for (field in iClass.declaredFields) {
-            field.isAccessible = true
+            if (!Modifier.isFinal(field.modifiers)) {
+                field.isAccessible = true
+            }
             val inAnnotation = field.getAnnotation(In::class.java)
             val ignoreAnnotation = field.getAnnotation(Ignore::class.java)
             if (inAnnotation != null || ignoreAnnotation != null) {
@@ -531,9 +543,11 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 val oVertexDocument = session.load<OVertexDocument>(iContent)
                 return toObject(oVertexDocument)
             }
+
             is OVertexDocument -> {
                 return toObject(iContent)
             }
+
             is OResult -> {
                 if (iContent.isVertex) {
                     val oVertexDocument = iContent.vertex.get() as OVertexDocument
@@ -549,6 +563,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 }
                 throw IllegalArgumentException("$iContent type not supported")
             }
+
             is ORidBag -> {
                 val resultList: MutableList<Any> = mutableListOf()
                 iContent.forEach { it ->
@@ -556,11 +571,13 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 }
                 return resultList as RET
             }
+
             is OEdgeDocument -> {
                 val outOVertex: OVertexDocument =
                     iContent.getProperty("in") // The In side is connected to this vertex when reading
                 return toObject(outOVertex)
             }
+
             else -> throw IllegalArgumentException("" + iContent.javaClass + " not supported")
         }
 
@@ -578,9 +595,11 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                         oDocument.getProperty("in") // The In side is connected to this vertex when reading
                     toObject<RET>(outOVertex)?.let { resultList.add(it) }
                 }
+
                 is OVertexDocument -> {
                     toObject<RET>(it)?.let { resultList.add(it) }
                 }
+
                 else -> {
                     logger.warn("Unsupported document type ${oDocument.className}")
                 }
@@ -618,8 +637,8 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                     val edgeLabel = outAnnotation.edgeLabel.ifEmpty { entityName + "To" + field.javaClass.simpleName }
                     val outElement: Any = oDocument.getProperty<Any?>("out_$edgeLabel") ?: continue
                     val toObject: Any? = toObject(outElement)
-                    if (toObject is Collection<*> && !Collection::class.java.isAssignableFrom(field.type) ) {
-                        if(!toObject.isEmpty()) {
+                    if (toObject is Collection<*> && !Collection::class.java.isAssignableFrom(field.type)) {
+                        if (!toObject.isEmpty()) {
                             toObject.firstNotNullOf { // We may get an RidBag while we linked a single entity
                                 field[resultObject] = it
                             }
@@ -659,9 +678,10 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
             fieldClass.isEnum && value is String -> {
                 return getEnumValue(fieldClass, value)
             }
+
             Set::class.java.isAssignableFrom(fieldClass) -> {
                 val setValue = hashSetOf<Any>()
-                if(value != null) {
+                if (value != null) {
                     (value as Set<Any>).forEach {
                         val element: Any? = mapToObjectValue(genericClass!!, null, it)
                         if (element != null) {
@@ -671,9 +691,10 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 }
                 return setValue
             }
+
             Collection::class.java.isAssignableFrom(fieldClass) -> {
                 val listValue = mutableListOf<Any>()
-                if(value != null) {
+                if (value != null) {
                     (value as Collection<Any>).forEach {
                         val element: Any? = mapToObjectValue(genericClass!!, null, it)
                         if (element != null) {
@@ -692,6 +713,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
             fieldClass.isEnum && value != null -> {
                 return getEnumName(fieldClass, value as Enum<*>)
             }
+
             Set::class.java.isAssignableFrom(fieldClass) -> {
                 val setValue = hashSetOf<Any>()
                 (value as Set<Any>).forEach {
@@ -702,6 +724,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
                 }
                 return setValue
             }
+
             Collection::class.java.isAssignableFrom(fieldClass) -> {
                 val listValue = mutableListOf<Any>()
                 (value as Collection<Any>).forEach {
