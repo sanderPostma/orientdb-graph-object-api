@@ -32,7 +32,6 @@ import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZonedDateTime
 import java.util.*
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 @Suppress("unused")
@@ -240,19 +239,21 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         return toObject(oDocument)
     }
 
-    override fun <RET> lock(orid: ORID?): RET? {
-        if (orid == null) {
-            return null
+    /*
+        override fun <RET> lock(orid: ORID?): RET? {
+            if (orid == null) {
+                return null
+            }
+            session.activateOnCurrentThread()
+            val document = session.lock<ODocument>(orid, 30, TimeUnit.SECONDS) ?: return null // UNUSABLE, LOCKS AT VERY UNPREDICTABLE MOMENTS LIKE WHEN QUERYING
+            return toObject(document)
         }
-        session.activateOnCurrentThread()
-        val document = session.lock<ODocument>(orid, 0, TimeUnit.MILLISECONDS) ?: return null
-        return toObject(document)
-    }
 
-    override fun unlock(orid: ORID?) {
-        session.activateOnCurrentThread()
-        session.unlock(orid)
-    }
+        override fun unlock(orid: ORID?) {
+            session.activateOnCurrentThread()
+            session.unlock(orid)
+        }
+    */
 
     override fun <RET> loadCollection(collection: Collection<ORID?>?): List<RET> {
         session.activateOnCurrentThread()
@@ -462,7 +463,7 @@ class OrientDBObjectApiImpl(override val session: ODatabaseSession) : OrientDBOb
         val outEdgeFields: MutableSet<Field> = hashSetOf()
         val valueFields: MutableSet<Field?> = hashSetOf()
         for (field in iClass.declaredFields) {
-            if (!Modifier.isFinal(field.modifiers)) {
+            if (!Modifier.isFinal(field.modifiers) && !Modifier.isTransient(field.modifiers)) {
                 field.isAccessible = true
             }
             val inAnnotation = field.getAnnotation(In::class.java)

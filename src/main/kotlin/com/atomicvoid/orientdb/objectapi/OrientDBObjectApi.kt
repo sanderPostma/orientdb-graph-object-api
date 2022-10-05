@@ -34,8 +34,11 @@ interface OrientDBObjectApi : AutoCloseable {
 
     fun <RET> load(orid: ORID?): RET?
     fun <RET> load(orid: ORID?, iClass: Class<RET>): RET?
-    fun <RET> lock(orid: ORID?): RET?
-    fun unlock(orid: ORID?)
+
+    /*
+        fun <RET> lock(orid: ORID?): RET?
+        fun unlock(orid: ORID?)
+    */
     fun <RET> loadCollection(collection: Collection<ORID?>?): List<RET>
     fun <RET> loadCollection(collection: Collection<ORID?>?, iClass: Class<RET>): List<RET>
     fun <RET> findAll(iClass: Class<RET>): List<RET>
